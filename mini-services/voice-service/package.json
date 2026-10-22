@@ -1,0 +1,13 @@
+{
+  "name": "voice-service",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --env-file=../../.env --hot index.js 2>&1 | tee dev.log"
+  },
+  "dependencies": {
+    "msedge-tts": "^2.1.0",
+    "socket.io": "^4.8.4",
+    "z-ai-web-dev-sdk": "^0.0.18"
+  }
+}

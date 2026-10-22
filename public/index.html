@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="AI voice sales agent demo - a browser voice console that talks, listens and converts.">
+  <meta name="color-scheme" content="dark">
+  <title>VoiceSales AI - AI Voice Calling Agent</title>
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/vendor/socket.io.min.js"></script>
+  <script type="module" src="/js/app.js"></script>
+</head>
+<body>
+  <div class="page">
+
+    <header class="navbar" role="banner">
+      <a class="nav-brand" href="#top" aria-label="VoiceSales AI home">
+        <span class="nav-logo-mark" aria-hidden="true"></span>
+        <span class="nav-wordmark">VoiceSales AI</span>
+      </a>
+      <nav class="nav-center" aria-label="Section navigation">
+        <a class="nav-link active" href="#console">Console</a>
+        <a class="nav-link" href="#history">History</a>
+      </nav>
+      <div class="nav-right">
+        <!-- feature 18-c: LIVE voice badge - app.js polls /api/health on
+             boot + every 10 s and flips the role ONLINE/OFFLINE; the static
+             OFFLINE below is the honest pre-poll default. While a call is
+             live the voice socket connect state overrides until the next
+             poll. -->
+        <span class="status-chip" data-voice-chip data-role="offline" role="status" aria-label="Voice service status">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span class="status-label" data-voice-chip-label>OFFLINE</span>
+        </span>
+        <!-- feature 25: settings gear - opens the settings dialog
+             (public/js/settings.js); 44 px touch target, same chip family.
+             Task 23: user direction - the gear is HIDDEN from the UI (kept in
+             the DOM so settings.js wiring + the internal voice-config feed
+             keep working; `hidden` also removes it from tab order/AT). -->
+        <button class="settings-button" id="settings-button" type="button" aria-label="Settings" aria-haspopup="dialog" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+        <button class="button-primary" type="button" disabled>Start Call</button>
+      </div>
+    </header>
+
+    <!-- feature 25: settings dialog - opened by the navbar gear;
+         public/js/settings.js fills the fields from GET /api/settings
+         (masked - last-4 key hints only), saves changed fields via PUT
+         and pings the effective LLM via POST /api/settings/test.
+         Esc / backdrop / Close-button dismiss (same mechanics as the
+         call detail dialog). Settings apply on the NEXT call. -->
+    <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-dialog-title">
+      <div class="settings-dialog-inner">
+        <header class="settings-dialog-head">
+          <div class="settings-dialog-heading">
+            <h3 class="settings-dialog-title" id="settings-dialog-title">Settings</h3>
+            <p class="settings-dialog-subtitle">Applies to your next call.</p>
+          </div>
+          <button class="call-dialog-close" type="button" data-settings-close aria-label="Close settings">&times;</button>
+        </header>
+        <div class="settings-dialog-body" data-settings-body>
+          <section class="settings-section">
+            <h4 class="settings-section-title">Speech recognition (STT)</h4>
+            <div class="settings-field">
+              <label class="settings-label" for="settings-stt-provider">Provider</label>
+              <select class="settings-select" id="settings-stt-provider" data-settings-stt-provider>
+                <option value="builtin">Built-in (no key needed)</option>
+                <option value="groq">Groq Whisper</option>
+              </select>
+            </div>
+            <div class="settings-field">
+              <label class="settings-label" for="settings-stt-model">Model</label>
+              <select class="settings-select" id="settings-stt-model" data-settings-stt-model>
+                <option value="whisper-large-v3-turbo">whisper-large-v3-turbo</option>
+                <option value="whisper-large-v3">whisper-large-v3</option>
+              </select>
+            </div>
+            <div class="settings-field">
+              <label class="settings-label" for="settings-groq-key">Groq API key</label>
+              <input class="settings-input" type="password" id="settings-groq-key" data-settings-groq-key autocomplete="off" spellcheck="false" placeholder="Not set">
+              <button class="settings-clear" type="button" data-settings-clear-groq hidden>Clear saved key</button>
+            </div>
+          </section>
+          <section class="settings-section">
+            <h4 class="settings-section-title">Conversation + summary AI</h4>
+            <div class="settings-field">
+              <label class="settings-label" for="settings-llm-provider">Provider</label>
+              <select class="settings-select" id="settings-llm-provider" data-settings-llm-provider>
+                <option value="builtin">Built-in (fastest, recommended)</option>
+                <option value="xkiro">Xkiro</option>
+                <option value="groq">Groq</option>
+              </select>
+            </div>
+            <div class="settings-field">
+              <label class="settings-label" for="settings-llm-model">Model</label>
+              <input class="settings-input" type="text" id="settings-llm-model" data-settings-llm-model list="settings-llm-model-options" autocomplete="off" spellcheck="false">
+              <datalist id="settings-llm-model-options">
+                <option value="sensenova/sensenova-6.8-flash-lite"></option>
+                <option value="qwen/qwen3-omni-flash:free"></option>
+                <option value="llama-3.1-8b-instant"></option>
+                <option value="llama-3.3-70b-versatile"></option>
+              </datalist>
+              <p class="settings-help">The same model summarises your calls.</p>
+            </div>
+            <div class="settings-field">
+              <label class="settings-label" for="settings-xkiro-key">Xkiro API key</label>
+              <input class="settings-input" type="password" id="settings-xkiro-key" data-settings-xkiro-key autocomplete="off" spellcheck="false" placeholder="Not set">
+              <button class="settings-clear" type="button" data-settings-clear-xkiro hidden>Clear saved key</button>
+            </div>
+            <div class="settings-field" data-settings-xkiro-url-field>
+              <label class="settings-label" for="settings-xkiro-url">Xkiro base URL</label>
+              <input class="settings-input" type="text" id="settings-xkiro-url" data-settings-xkiro-url placeholder="https://api.xkiro.com/v1" autocomplete="off" spellcheck="false">
+            </div>
+          </section>
+          <section class="settings-section">
+            <h4 class="settings-section-title">Voice (text-to-speech)</h4>
+            <div class="settings-field">
+              <label class="settings-label" for="settings-tts-voice">Voice</label>
+              <select class="settings-select" id="settings-tts-voice" data-settings-tts-voice>
+                <option value="en-US-AndrewMultilingualNeural">Andrew (natural, male)</option>
+                <option value="en-US-AndrewNeural">Andrew (male)</option>
+                <option value="en-US-AriaNeural">Aria (female)</option>
+                <option value="en-US-EmmaNeural">Emma (female)</option>
+                <option value="en-US-BrianNeural">Brian (male)</option>
+                <option value="en-US-JennyNeural">Jenny (female)</option>
+              </select>
+            </div>
+          </section>
+        </div>
+        <footer class="settings-dialog-foot">
+          <p class="settings-status" data-settings-status role="status" aria-live="polite"></p>
+          <div class="settings-actions">
+            <button class="button-ghost" type="button" data-settings-test>Test AI connection</button>
+            <button class="button-primary" type="button" data-settings-save>Save settings</button>
+          </div>
+        </footer>
+      </div>
+    </dialog>
+
+    <main class="main" id="top">
+
+      <section class="hero" aria-labelledby="hero-title">
+        <span class="badge-pill">AI VOICE SALES AGENT</span>
+        <h1 class="hero-title" id="hero-title">
+          <span class="hero-line hero-line-1">AI Voice Calling Agent</span>
+          <span class="hero-line hero-line-2">That Converts</span>
+        </h1>
+        <p class="hero-sub">
+          Start a consented demo call and talk with an AI sales agent that
+          listens, answers, and closes - live in your browser.
+        </p>
+      </section>
+
+      <!-- ================================================================
+           Console region (features 05-09). The real state machine in
+           public/js/state.js drives every hidden/disabled/copy change
+           below; the mock pipeline pieces are marked // MOCK.
+           ================================================================ -->
+      <section class="console-section" id="console" aria-label="Voice console">
+
+        <!-- feature 05: console card, idle state -->
+        <section class="console-card" aria-label="Call console">
+          <div class="console-top">
+            <span class="console-badge">AI Voice calling agent</span>
+            <span class="timer-chip" data-timer-chip>00:00</span>
+            <span class="status-chip" data-call-chip data-role="ready">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span class="status-label" data-call-chip-label>READY</span>
+            </span>
+          </div>
+
+          <div class="orb-stage">
+            <video class="orb-video" data-orb
+              src="/media/orb-loop.mp4"
+              poster="/media/orb-poster.jpg"
+              autoplay muted loop playsinline></video>
+          </div>
+
+          <!-- feature 06/15: transcript panel - starts EMPTY; real
+               customer/bot bubbles append here via turn:final while the
+               call is live (the // MOCK (feature 06) seeded bubbles were
+               deleted by feature 15) -->
+          <div class="transcript-panel" data-transcript-panel aria-label="Live transcript">
+            <p class="transcript-empty" data-transcript-empty>Your conversation will appear here in real time.</p>
+            <ol class="transcript-list" data-transcript-list hidden></ol>
+          </div>
+
+          <label class="consent-row" data-consent-row>
+            <input class="consent-check" type="checkbox" data-consent-input>
+            <span class="consent-text">I consent to this call being recorded for quality and playback</span>
+          </label>
+
+          <div class="console-controls">
+            <button class="button-primary" type="button" data-start-button disabled>Start Call</button>
+            <button class="button-danger" type="button" data-end-button hidden>End Call</button>
+            <div class="mic-bars" data-mic-bars aria-hidden="true">
+              <span class="mic-bar"></span>
+              <span class="mic-bar"></span>
+              <span class="mic-bar"></span>
+              <span class="mic-bar"></span>
+              <span class="mic-bar"></span>
+            </div>
+          </div>
+
+          <p class="status-line" data-status-line role="status">Enable recording consent to begin.</p>
+        </section>
+
+        <!-- feature 19: skeleton shimmer state - shown by the feature 09
+             machine while the REAL summary POST runs; the card below then
+             renders the API response (or the failure row shows). -->
+        <section class="summary-card summary-card--skeleton" data-summary-skeleton hidden aria-label="Generating call summary">
+          <div class="summary-head">
+            <span class="skeleton-line skeleton-line--title"></span>
+            <span class="skeleton-line skeleton-line--chip"></span>
+          </div>
+          <span class="skeleton-line skeleton-line--body"></span>
+          <span class="skeleton-line skeleton-line--body skeleton-line--short"></span>
+          <div class="summary-blocks">
+            <span class="skeleton-line skeleton-line--block"></span>
+            <span class="skeleton-line skeleton-line--block"></span>
+            <span class="skeleton-line skeleton-line--block"></span>
+          </div>
+        </section>
+
+        <!-- feature 19: summary card - the chip/paragraph/blocks render from
+             the REAL POST /api/calls/[id]/summary response; the static markup
+             below is only the pre-render default (the // MOCK (feature 09)
+             "Interested" chip is retired) -->
+        <section class="summary-card" data-summary-card hidden aria-labelledby="summary-title">
+          <div class="summary-head">
+            <h2 class="summary-title" id="summary-title">Call Summary</h2>
+            <span class="status-chip status-chip--sm" data-summary-chip data-role="converted">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span class="status-label" data-summary-chip-label>Converted</span>
+            </span>
+          </div>
+          <p class="summary-body">
+            Avery opened with a short free scoping call and walked the prospect
+            through FlowSmith's AI automations for lead follow-up and scheduling.
+            The prospect runs a twelve-person services team, asked how the monthly
+            plans scale, and agreed to a first automation going live within a week.
+          </p>
+          <div class="summary-blocks">
+            <div class="summary-block">
+              <h3 class="summary-block-label">Customer Requirements</h3>
+              <p class="summary-block-body">Faster lead follow-up and easier scheduling for a twelve-person team, with reporting connected to the tools they already use.</p>
+            </div>
+            <div class="summary-block">
+              <h3 class="summary-block-label">Objections</h3>
+              <p class="summary-block-body">Current tooling contract runs three more months; worried about switching disruptions.</p>
+            </div>
+            <div class="summary-block">
+              <h3 class="summary-block-label">Next Steps</h3>
+              <p class="summary-block-body">Send the automation checklist from the scoping call; first automation kickoff on Monday.</p>
+            </div>
+          </div>
+          <div class="summary-actions">
+            <button class="button-primary" type="button" data-new-call-button hidden>New Call</button>
+          </div>
+        </section>
+
+        <!-- feature 19: summary failure row - the skeleton hides and this
+             shows when POST /api/calls/[id]/summary fails (502/network);
+             Retry re-runs the POST (re-creating the call row first when it
+             404s). The status line carries the same locked copy. -->
+        <div class="history-fail" data-summary-fail hidden>
+          <p class="history-fail-text">Summary failed.</p>
+          <button class="pill-button" type="button" data-summary-retry>Retry</button>
+        </div>
+
+        <!-- // MOCK (feature 07) chip verification strip - visible only with the
+             ?devchips=1 query flag; removed by feature 19 -->
+        <div class="dev-chip-strip" data-dev-chips hidden aria-label="Status chip color verification">
+          <span class="dev-chip-strip-label">dev chips (feature 07 spec check)</span>
+          <span class="status-chip status-chip--sm" data-role="converted"><span class="status-dot" aria-hidden="true"></span><span class="status-label">Converted</span></span>
+          <span class="status-chip status-chip--sm" data-role="interested"><span class="status-dot" aria-hidden="true"></span><span class="status-label">Interested</span></span>
+          <span class="status-chip status-chip--sm" data-role="demo-requested"><span class="status-dot" aria-hidden="true"></span><span class="status-label">Demo Requested</span></span>
+          <span class="status-chip status-chip--sm" data-role="follow-up-required"><span class="status-dot" aria-hidden="true"></span><span class="status-label">Follow-up Required</span></span>
+          <span class="status-chip status-chip--sm" data-role="not-interested"><span class="status-dot" aria-hidden="true"></span><span class="status-label">Not Interested</span></span>
+          <span class="status-chip status-chip--sm" data-role="no-response"><span class="status-dot" aria-hidden="true"></span><span class="status-label">No Response</span></span>
+        </div>
+
+      </section>
+
+      <!-- ================================================================
+           History region (features 20/23). Real rows render into the list
+           from GET /api/calls?limit=50 (app.js, newest first); the
+           // MOCK (feature 08) rows and their per-row detail templates were
+           deleted by feature 20. Row click opens the call detail dialog on
+           GET /api/calls/[id]; Delete runs the confirm dialog, then
+           DELETE /api/calls/[id].
+           ================================================================ -->
+      <section class="history-section" id="history" aria-labelledby="history-title">
+        <h2 class="section-title" id="history-title">Call History</h2>
+
+        <p class="empty-state" data-history-empty>No calls yet — start your first demo call above.</p>
+
+        <!-- feature 20: list load failure - the frozen copy + Retry
+             refetches GET /api/calls?limit=50. -->
+        <div class="history-fail" data-history-fail hidden>
+          <p class="history-fail-text">Couldn't load call history.</p>
+          <button class="pill-button" type="button" data-history-retry>Retry</button>
+        </div>
+
+        <!-- feature 20: real call rows (newest first) render here from
+             GET /api/calls?limit=50; each row's main area is one button
+             that opens the call detail dialog (same row markup/classes the
+             deleted mock rows used). -->
+        <ul class="history-list" data-history-list hidden aria-label="Call history"></ul>
+
+        <!-- feature 23: delete confirm dialog - confirm runs the real
+             DELETE /api/calls/[id] then refreshes the list; cancel closes. -->
+        <dialog class="confirm-dialog" data-confirm-dialog aria-labelledby="confirm-dialog-text">
+          <p class="confirm-text" id="confirm-dialog-text">Really delete? This removes the recording permanently.</p>
+          <div class="confirm-actions">
+            <button class="button-primary" type="button" data-confirm-yes>Confirm</button>
+            <button class="button-ghost" type="button" data-confirm-no>Cancel</button>
+          </div>
+        </dialog>
+
+        <!-- feature 20: call detail dialog - app.js fetches
+             GET /api/calls/[id] and renders the REAL detail (meta stats +
+             summary blocks + transcript bubbles) into the body; the
+             per-row mock templates are gone. A Recording section waits for
+             feature 21 (streaming playback). -->
+        <dialog class="call-dialog" data-call-dialog aria-labelledby="call-dialog-title">
+          <div class="call-dialog-inner">
+            <header class="call-dialog-head">
+              <div class="call-dialog-heading">
+                <h3 class="call-dialog-title" id="call-dialog-title">FlowSmith demo</h3>
+                <span class="status-chip status-chip--sm" data-call-dialog-chip data-role="converted">
+                  <span class="status-dot" aria-hidden="true"></span>
+                  <span class="status-label" data-call-dialog-chip-label>Converted</span>
+                </span>
+              </div>
+              <button class="call-dialog-close" type="button" data-call-dialog-close aria-label="Close call details">&times;</button>
+            </header>
+            <div class="call-dialog-body" data-call-dialog-body>
+              <!-- populated per call from the real API detail -->
+            </div>
+          </div>
+        </dialog>
+
+      </section>
+
+    </main>
+
+    <footer class="footer">
+      AI Voice Sales Agent &mdash; live demo &middot; voice loop runs locally
+    </footer>
+
+  </div>
+</body>
+</html>

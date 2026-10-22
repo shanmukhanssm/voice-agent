@@ -1,0 +1,61 @@
+# dependencies
+node_modules
+mini-services/*/node_modules
+
+# env files - never commit real keys
+.env
+.env.*
+!.env.example
+
+# databases & user data (created at runtime, may contain customer call recordings)
+/db/custom.db*
+/db/recordings/
+
+# logs
+*.log
+dev.log
+dev.out.log
+server.log
+
+# docs / internal working files (not needed to run the app)
+context/
+reference-context/
+project/
+examples/
+download/
+upload/
+tests/
+tool-results/
+test-shots/
+agents.md
+worklog.md
+DESCRIPTION.md
+
+# dev-only scripts not referenced by package.json
+scripts/keepalive.sh
+scripts/validate-docs.py
+scripts/verify-stack.ts
+scripts/verify-tts-latency.ts
+
+# test fixtures & dead code
+mini-services/voice-service/__mkfixture.js
+public/js/settings.js
+public/media/barge-fixture.txt
+public/media/speech-fixture.txt
+
+# misc
+.DS_Store
+*.pem
+*.pid
+.claude
+.z-ai-config
+local-*
+.vercel
+coverage
+
+# platform skills directory (tooling docs, not app code)
+/skills/
+
+# sandbox platform plumbing (not needed on other machines)
+.zscripts/
+Caddyfile

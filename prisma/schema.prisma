@@ -1,0 +1,83 @@
+// Schema single copy: context/architecture.md ss Database Schema.
+// Do not restate this schema anywhere else - other docs reference it by name.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Call {
+  id             String    @id @default(cuid())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  endedAt        DateTime?
+  durationSec    Int       @default(0)
+  status         String    @default("in_progress")
+  salesStatus    String?
+  consent        Boolean   @default(false)
+  submissionId   String    @unique
+  turnCount      Int       @default(0)
+  summary        String?
+  requirements   String?
+  objections     String?
+  nextSteps      String?
+  recordingUrl   String?
+  recordingBytes Int?
+  providerChain  String?
+  turns          Turn[]
+
+  @@index([createdAt])
+}
+
+model Turn {
+  id        String   @id @default(cuid())
+  callId    String
+  idx       Int
+  role      String
+  text      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  call      Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@unique([callId, idx])
+  @@index([callId, idx])
+}
+
+model UsageCounter {
+  id          String   @id @default(cuid())
+  key         String
+  windowStart DateTime
+  count       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([key, windowStart])
+}
+
+// Singleton settings row (feature 25, Task 19-a): id is always "global" -
+// saveSettings upserts this one row, never a second one. Key fields stay
+// null when unset (resolution order Settings-DB ?? .env ?? default); they
+// are server-side only and are NEVER returned by any /api response (the
+// client sees last-4 hints only).
+model Setting {
+  id           String   @id @default("global")
+  sttProvider  String   @default("builtin") // closed set "builtin" | "groq"
+  sttModel     String   @default("whisper-large-v3-turbo")
+  llmProvider  String   @default("builtin") // closed set "xkiro" | "groq" | "builtin" (Task 20-a: builtin is the default - fastest measured brain)
+  llmModel     String   @default("sensenova/sensenova-6.8-flash-lite")
+  ttsVoice     String   @default("en-US-AndrewMultilingualNeural") // Task 21-b probe 2026-10-22 (settings default = first SETTINGS_TTS_VOICES entry)
+  groqApiKey   String?
+  xkiroApiKey  String?
+  xkiroBaseUrl String?
+  updatedAt    DateTime @updatedAt
+}
+
+// SQLite note (ADR H-03): Prisma + SQLite cannot express CHECK/enum
+// constraints - closed value sets (Call.status, Call.salesStatus, Turn.role,
+// Setting.sttProvider, Setting.llmProvider, Setting.ttsVoice)
+// are enforced at the Zod boundary + service transitions; native Postgres
+// enums are added in the migration set at the Supabase switch.
