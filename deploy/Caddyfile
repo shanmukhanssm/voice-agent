@@ -1,0 +1,35 @@
+# Deploy edge gateway (container). Listens on the platform-injected $PORT
+# (falls back to 3000 for local docker runs) and replicates the sandbox shape:
+# - /internal/* never leaves the edge (browser never holds the shared token)
+# - ?XTransformPort=NNNN routes to that local port (voice-service = 3003)
+# - everything else goes to the main server on the fixed internal port 3000
+:{$PORT:3000} {
+	@internal_path {
+		path /internal/*
+	}
+	handle @internal_path {
+		respond 403
+	}
+
+	@transform_port_query {
+		query XTransformPort=*
+	}
+
+	handle @transform_port_query {
+		reverse_proxy localhost:{query.XTransformPort} {
+			header_up Host {host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+
+	handle {
+		reverse_proxy localhost:3000 {
+			header_up Host {host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+}
